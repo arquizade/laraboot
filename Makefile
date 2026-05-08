@@ -1,6 +1,7 @@
 PHP_IMAGE=php:8.4-cli
 COMPOSER_IMAGE=composer:2
 APP_DIR=$(shell pwd)
+APP_NAME=$(shell basename $(APP_DIR))
 
 .PHONY: setup start down require stack artisan help check_port dev
 
@@ -27,7 +28,7 @@ start: check_port
 		-v "$(APP_DIR)":/app \
 		-w /app \
 		-p $(port):8000 \
-		--name laravel_app \
+		--name $(APP_NAME) \
 		$(PHP_IMAGE) php artisan serve --host=0.0.0.0 --port=8000
 
 dev: check_port
@@ -39,8 +40,8 @@ dev: check_port
 		$(PHP_IMAGE) php artisan serve --host=0.0.0.0 --port=8000
 
 stop:
-	@echo "Stopping all laraboot containers..."
-	docker ps -q --filter ancestor=$(PHP_IMAGE) | xargs -r docker stop
+	@echo "Stopping container $(APP_NAME)..."
+	docker stop $(APP_NAME)
 
 require:
 	@if [ -z "$(package)" ]; then echo "Error: package is required. Usage: make require package=vendor/package"; exit 1; fi
@@ -68,7 +69,7 @@ help:
 	@echo "  make setup                                     install deps, copy .env, generate key"
 	@echo "  make dev [port=80]                             start server with logs (foreground)"
 	@echo "  make start [port=80]                           start server quietly (background)"
-	@echo "  make stop                                      stop all running containers"
+	@echo "  make stop                                      stop running container"
 	@echo "  make require package=vendor/package            install a single composer package"
 	@echo "  make stack name=ai                             install a predefined stack"
 	@echo "  make artisan <command>                         run any artisan command"
