@@ -3,7 +3,17 @@ COMPOSER_IMAGE=composer:2
 APP_DIR=$(shell pwd)
 APP_NAME=$(shell basename $(APP_DIR))
 
-.PHONY: setup start down require stack artisan help check_port dev
+.PHONY: setup start stop dev require stack artisan help check_port
+
+port ?= 80
+
+# Helper to check if port is busy
+check_port:
+	@if lsof -Pi :$(port) -sTCP:LISTEN -t >/dev/null 2>&1; then \
+		echo "Error: Port $(port) is already in use by another process."; \
+		lsof -Pi :$(port) -sTCP:LISTEN; \
+		exit 1; \
+	fi
 
 setup:
 	docker run --rm -v "$(APP_DIR)":/app $(COMPOSER_IMAGE) install --ignore-platform-reqs
@@ -11,16 +21,6 @@ setup:
 	docker run --rm -v "$(APP_DIR)":/app -w /app $(PHP_IMAGE) php artisan key:generate
 	@echo ""
 	@echo "Setup complete. Run: make start"
-
-port ?= 80
-
-# Helper to check if port is busy
-check_port:
-	@if lsof -Pi :$(port) -sTCP:LISTEN -t >/dev/null ; then \
-		echo "Error: Port $(port) is already in use by another process."; \
-		lsof -Pi :$(port) -sTCP:LISTEN; \
-		exit 1; \
-	fi
 
 start: check_port
 	@echo "Starting in background on http://localhost:$(port)"

@@ -74,29 +74,36 @@ for arg in "$@"; do
     esac
 done
 
-# Port resolution: explicit > 80 > 8000 > error
+# Port resolution: explicit > 80 > 8001..8010 > error
 resolve_port() {
     if [ -n "$APP_PORT" ]; then
         echo -e "  ${CYAN}Using specified port: ${BOLD}${APP_PORT}${RESET}"
         return 0
     fi
 
-    if ! lsof -i :80 -sTCP:LISTEN -t > /dev/null 2>&1; then
-        APP_PORT=80
-        echo -e "  ${GREEN}Port 80 is available. Using port 80.${RESET}"
-        return 0
-    fi
+    FALLBACK_PORTS=(80 8001 8002 8003 8004 8005 8006 8007 8008 8009 8010)
 
-    echo -e "  ${YELLOW}Warning: Port 80 is in use.${RESET}"
+    for PORT in "${FALLBACK_PORTS[@]}"; do
+        if ! lsof -i :$PORT -sTCP:LISTEN -t > /dev/null 2>&1; then
+            APP_PORT=$PORT
+            if [ "$PORT" = "80" ]; then
+                echo -e "  ${GREEN}Port 80 is available. Using port 80.${RESET}"
+            else
+                echo -e "  ${YELLOW}Port 80 is in use. Using fallback port ${BOLD}${PORT}${RESET}${YELLOW}.${RESET}"
+            fi
+            return 0
+        else
+            if [ "$PORT" = "80" ]; then
+                echo -e "  ${YELLOW}Port 80 is in use, trying fallbacks...${RESET}"
+            else
+                echo -e "  ${YELLOW}Port ${PORT} is in use.${RESET}"
+            fi
+        fi
+    done
 
-    if ! lsof -i :8000 -sTCP:LISTEN -t > /dev/null 2>&1; then
-        APP_PORT=8000
-        echo -e "  ${YELLOW}Falling back to port 8000.${RESET}"
-        return 0
-    fi
-
-    echo -e "  ${RED}Error: Both port 80 and port 8000 are in use.${RESET}"
-    echo -e "  ${RED}Free up one of those ports or pass --port=<number> to specify another.${RESET}"
+    echo ""
+    echo -e "  ${RED}Error: All ports (80, 8001-8010) are in use.${RESET}"
+    echo -e "  ${RED}Free up a port or pass ${BOLD}--port=<number>${RESET}${RED} to specify one.${RESET}"
     exit 1
 }
 
@@ -174,11 +181,22 @@ if ! make setup; then
     exit 1
 fi
 
-# Run make start in background so script can continue
+# Run make start in background
 echo ""
 echo -e "${BOLD}Running make start...${RESET}"
 make start &
 MAKE_START_PID=$!
+
+# Give it a moment to fail fast if port is already bound
+sleep 3
+if ! kill -0 "$MAKE_START_PID" 2>/dev/null; then
+    echo ""
+    echo -e "${RED}Error: make start exited immediately.${RESET}"
+    echo -e "${RED}Port ${APP_PORT} may have been taken after install started.${RESET}"
+    echo ""
+    echo -e "  Stop conflicting projects or re-run with ${BOLD}--port=<number>${RESET}."
+    exit 1
+fi
 
 # Wait for the app to respond
 echo ""
@@ -194,6 +212,14 @@ while [ $RETRIES -lt $MAX_RETRIES ]; do
         APP_READY=true
         break
     fi
+
+    # Stop polling if make start died mid-wait
+    if ! kill -0 "$MAKE_START_PID" 2>/dev/null; then
+        echo ""
+        echo -e "${RED}Error: make start process died unexpectedly.${RESET}"
+        break
+    fi
+
     RETRIES=$((RETRIES + 1))
     echo -e "  ${YELLOW}Attempt $RETRIES/$MAX_RETRIES — not ready yet, retrying in ${RETRY_INTERVAL}s...${RESET}"
     sleep $RETRY_INTERVAL
@@ -225,8 +251,7 @@ else
     echo -e "${RED}  ✗ App did not respond after $((MAX_RETRIES * RETRY_INTERVAL))s.${RESET}"
     echo -e "${CYAN}─────────────────────────────────────────${RESET}"
     echo ""
-    echo -e "  ${YELLOW}make start is still running (PID: $MAKE_START_PID).${RESET}"
-    echo -e "  Check the process or open manually: ${BOLD}${APP_URL}${RESET}"
+    echo -e "  ${YELLOW}Check Docker logs or open manually: ${BOLD}${APP_URL}${RESET}"
 fi
 
 echo ""
